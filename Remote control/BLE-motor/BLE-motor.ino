@@ -6,7 +6,7 @@ const int stepsPerRevolution = 512;  // change this to fit the number of steps p
 
 // initialize the stepper library on pins 8 through 11:
 Stepper myStepper(stepsPerRevolution, 2, 3, 4, 5);
-int steps = 64;
+int steps = 128;
 long lastTime = 0;
 
 void setup() {
@@ -54,10 +54,10 @@ void loop() {
       controlCharacteristic.readValue(value);
       Serial.println(value);
       if (value == 1) {
-        myStepper.step(steps);
-      }
-      else if (value == 0) {
         myStepper.step(-steps);
+        delay(500);
+        myStepper.step(steps);
+        delay(500);
       }
     }
 

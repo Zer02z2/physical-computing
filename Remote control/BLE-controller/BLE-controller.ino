@@ -1,23 +1,15 @@
-#include <EncoderStepCounter.h>
 #include <ArduinoBLE.h>
 
 int lastTime = 0;
- 
-// encoder pins:
-const int pin1 = 10;
-const int pin2 = 2;
-const int ledPin = LED_BUILTIN;
+int lastState = 0;
 
-// Create encoder instance:
-EncoderStepCounter encoder(pin1, pin2);
+const int buttonPin = 2;
 
 BLEService controlService("00c09c59-82e4-45bf-ac98-23437e0ca62b");
 BLEByteCharacteristic controlCharacteristic("00c09c59-82e4-45bf-ac98-23437e0ca62b", BLERead | BLENotify);
  
-// encoder previous position:
-int oldPosition = 0;
- 
 void setup() {
+  pinMode(buttonPin, INPUT);
   Serial.begin(9600);
   //while (!Serial);
 
@@ -39,37 +31,22 @@ void setup() {
   BLE.advertise();
 
   Serial.println("Bluetooth® device active, waiting for connections...");
-
-  // Initialize encoder
-  encoder.begin();
 }
  
 void loop() {
   BLE.poll();
-  encoder.tick();
-
-  // read encoder position:
-  int position = encoder.getPosition();
  
-  // if there's been a change, print it:
-  if (position != oldPosition) {
-    if (position > oldPosition){
-      Serial.println("left");
-      controlCharacteristic.writeValue(0);
-      lastTime = millis();
-    }
-
-    if (position < oldPosition){
-      Serial.println("right");
-      controlCharacteristic.writeValue(1);
-      lastTime = millis();
-    }
-    // Serial.println(position);
-    oldPosition = position;
+  const int reading = digitalRead(buttonPin);
+  if (reading == HIGH && reading != lastState) {
+    Serial.println("1");
+    controlCharacteristic.writeValue(1);
+    delay(200);
+    lastTime = millis();
   }
   else {
     if (millis() - lastTime > 200) {
-      controlCharacteristic.writeValue(2);
+      controlCharacteristic.writeValue(0);
     }
   }
+  lastState = reading;
 }
