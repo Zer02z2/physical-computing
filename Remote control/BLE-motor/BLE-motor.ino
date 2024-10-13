@@ -1,12 +1,8 @@
-#include <Stepper.h>
+#include <Servo.h>
 #include <ArduinoBLE.h>
 
-const int stepsPerRevolution = 512;  // change this to fit the number of steps per revolution
-// for your motor
+Servo myservo;
 
-// initialize the stepper library on pins 8 through 11:
-Stepper myStepper(stepsPerRevolution, 2, 3, 4, 5);
-int steps = 128;
 long lastTime = 0;
 
 void setup() {
@@ -14,10 +10,11 @@ void setup() {
   Serial.begin(9600);
   //while (!Serial);
 
+  myservo.attach(2);
+  myservo.write(0);
+
   BLE.begin();
   BLE.scanForUuid("00c09c59-82e4-45bf-ac98-23437e0ca62b");
-
-  myStepper.setSpeed(50);
 }
 
 void loop() {
@@ -48,17 +45,22 @@ void loop() {
     }
     BLECharacteristic controlCharacteristic = peripheral.characteristic("00c09c59-82e4-45bf-ac98-23437e0ca62b");
 
+    byte lastValue = 0;
+
     while (peripheral.connected()) {
     // while the peripheral is connected
       byte value = 2;
       controlCharacteristic.readValue(value);
       Serial.println(value);
-      if (value == 1) {
-        myStepper.step(-steps);
-        delay(500);
-        myStepper.step(steps);
-        delay(500);
+      if (value == 1 && value != lastValue) {
+        myservo.write(90);
+        delay(1000);
       }
+      else if (value == 0 && value != lastValue) {
+        myservo.write(0);
+        delay(1000);
+      }
+      lastValue = value;
     }
 
     // peripheral disconnected, start scanning again
