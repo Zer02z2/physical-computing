@@ -1,12 +1,12 @@
 #include <Stepper.h>
 #include <ArduinoBLE.h>
 
-const int stepsPerRevolution = 512;  // change this to fit the number of steps per revolution
+const int stepsPerRevolution = 200;  // change this to fit the number of steps per revolution
 // for your motor
 
 // initialize the stepper library on pins 8 through 11:
 Stepper myStepper(stepsPerRevolution, 2, 3, 4, 5);
-int steps = 128;
+int steps = 200;
 long lastTime = 0;
 
 void setup() {
@@ -17,7 +17,7 @@ void setup() {
   BLE.begin();
   BLE.scanForUuid("00c09c59-82e4-45bf-ac98-23437e0ca62b");
 
-  myStepper.setSpeed(50);
+  myStepper.setSpeed(100);
 }
 
 void loop() {
@@ -54,10 +54,10 @@ void loop() {
       controlCharacteristic.readValue(value);
       Serial.println(value);
       if (value == 1) {
-        myStepper.step(-steps);
-        delay(500);
+        // myStepper.step(-steps);
+        // delay(1500);
         myStepper.step(steps);
-        delay(500);
+        delay(1500);
       }
     }
 
