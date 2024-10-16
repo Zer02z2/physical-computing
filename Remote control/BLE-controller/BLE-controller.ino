@@ -2,6 +2,7 @@
 
 const int upPin = 2;
 const int downPin = 3;
+const int ledPin = 4;
 
 BLEService controlService("00c09c59-82e4-45bf-ac98-23437e0ca62b");
 BLEByteCharacteristic controlCharacteristic("00c09c59-82e4-45bf-ac98-23437e0ca62b", BLERead | BLENotify);
@@ -9,12 +10,16 @@ BLEByteCharacteristic controlCharacteristic("00c09c59-82e4-45bf-ac98-23437e0ca62
 void setup() {
   pinMode(upPin, INPUT);
   pinMode(downPin, INPUT);
+  pinMode(ledPin, OUTPUT);
   Serial.begin(9600);
   //while (!Serial);
 
   while (!BLE.begin()) {
     Serial.println("starting Bluetooth® Low Energy module failed!");
-    delay(1000);
+    digitalWrite(ledPin, HIGH);
+    delay(200);
+    digitalWrite(ledPin, LOW);
+    delay(200);
   }
   BLE.setLocalName("AbsurdController");
   // set the UUID for the service this peripheral advertises:
@@ -34,7 +39,7 @@ void setup() {
 
 void loop() {
   BLE.poll();
-
+  digitalWrite(ledPin, HIGH);
   const int upReading = digitalRead(upPin);
   const int downReading = digitalRead(downPin);
 

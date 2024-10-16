@@ -4,8 +4,12 @@
 Servo myservo;
 
 long lastTime = 0;
+long lastBlinkTime = 0;
+int lastBlinkState = 0;
+const int ledPin = 3;
 
 void setup() {
+  pinMode(ledPin, OUTPUT);
   // initialize the serial port:
   Serial.begin(9600);
   //while (!Serial);
@@ -20,7 +24,12 @@ void setup() {
 void loop() {
   BLEDevice peripheral = BLE.available();
 
-
+  if (millis() - lastBlinkTime >= 200) {
+    if (lastBlinkState == 0) lastBlinkState = 1;
+    else if (lastBlinkState == 1) lastBlinkState = 0;
+    digitalWrite(ledPin, lastBlinkState);
+    lastBlinkTime = millis();
+  }
   if (peripheral) {
     // discovered a peripheral, print out address, local name, and advertised service
     Serial.print("Connecting... ");
@@ -49,6 +58,7 @@ void loop() {
 
     while (peripheral.connected()) {
     // while the peripheral is connected
+    digitalWrite(ledPin, HIGH);
       byte value = 2;
       controlCharacteristic.readValue(value);
       Serial.println(value);
