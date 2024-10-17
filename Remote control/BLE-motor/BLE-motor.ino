@@ -63,7 +63,7 @@ void loop() {
       controlCharacteristic.readValue(value);
       Serial.println(value);
       if (value == 1 && value != lastValue) {
-        myservo.write(90);
+        myservo.write(15);
         delay(1000);
       }
       else if (value == 0 && value != lastValue) {
