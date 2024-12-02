@@ -99,7 +99,7 @@ public:
     if (!broadcast) {
       recv_msg_count++;
       if (device_is_master) {
-        Serial.printf("Received a message from peer " MACSTR "\n", MAC2STR(addr()));
+        // Serial.printf("Received a message from peer " MACSTR "\n", MAC2STR(addr()));
         if (firstCalibrate) {
           if (msg->firstCal == 1) {
             bool IDFound = false;
@@ -116,6 +116,11 @@ public:
           }
           firstCalibrate = false;
           secondCalibrate = true;
+        } else if (secondCalibrate) {
+          Serial.println(msg->secondCal);
+          if (msg->secondCal == 1) {
+            secondCalibrate = false;
+          }
         }
       } else if (peer_is_master) {
         Serial.println("Received a message from the master");
@@ -261,6 +266,9 @@ void setup() {
   for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
     firstCalibrateResults[i] = 0;
   }
+
+  DateTime now = rtc.now();
+  lastMin = now.minute();
 }
 
 void loop() {
@@ -309,10 +317,12 @@ void loop() {
       }
     } else {
       if (firstCalibrate) {
+        Serial.println("first cal");
         new_msg.command = CALIBRATE_CENTER;
         new_msg.target = 1;
         sendToPeer();
       } else if (secondCalibrate) {
+        Serial.println("second cal");
         new_msg.command = CALIBRATE_ANGLE;
         new_msg.target = 1;
         DateTime now = rtc.now();
@@ -348,8 +358,8 @@ void sendToPeer() {
     if (!peer->send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
       Serial.printf("Failed to send message to peer " MACSTR "\n", MAC2STR(peer->addr()));
     } else {
-      Serial.printf(
-        "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", new_msg.command, new_msg.target);
+      // Serial.printf(
+      //   "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", new_msg.command, new_msg.target);
     }
   }
 }

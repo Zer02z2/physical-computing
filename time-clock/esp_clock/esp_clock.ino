@@ -18,6 +18,8 @@
 #define PULSE_MESSAGE 0
 #define CALIBRATE_LEFT 1
 #define CALIBRATE_RIGHT 2
+#define CALIBRATE_CENTER 3
+#define CALIBRATE_ANGLE 4
 
 #define DEVICE_ID 1
 
@@ -29,8 +31,10 @@ const int lightPin = A5;
 bool calibrateLeft = false;
 bool calibrateRight = false;
 bool calibrateCenter = false;
+bool calibrateAngle = false;
 bool ticking = false;
-bool locked = false;
+bool locked = true;
+int stepsToCalibrate = 0;
 
 typedef struct {
   uint32_t count;
@@ -38,7 +42,7 @@ typedef struct {
   uint32_t data;
   uint32_t target;
   uint32_t command;
-  uint32_t sender;
+  uint32_t id;
   uint32_t firstCal;
   uint32_t secondCal;
   uint32_t steps;
@@ -101,15 +105,31 @@ public:
         Serial.printf("  Count: %lu\n", msg->count);
         Serial.printf("  Random data: %lu\n", msg->data);
       } else if (peer_is_master) {
-        Serial.println("Received a message from the master");
-        //Serial.printf("  Average data: %lu\n", msg->data);
-        Serial.print("Command: ");
-        Serial.print(msg->command);
-        Serial.print(", Target: ");
-        Serial.println(msg->target);
+        // Serial.print("Command: ");
+        // Serial.print(msg->command);
+        // Serial.print(", Steps: ");
+        // Serial.print(msg->steps);
+        // Serial.print(", Target: ");
+        // Serial.println(msg->target);
         if (msg->target == DEVICE_ID) {
           if (msg->command == PULSE_MESSAGE) {
             ticking = true;
+            locked = false;
+            calibrateCenter = false;
+            calibrateAngle = false;
+          } else if (msg->command == CALIBRATE_CENTER) {
+            if (calibrateCenter == false) {
+              locked = false;
+              calibrateCenter = true;
+            }
+          } else if (msg->command == CALIBRATE_ANGLE) {
+            calibrateCenter = false;
+            if (calibrateAngle == false) {
+              locked = false;
+              calibrateAngle = true;
+              stepsToCalibrate = msg->steps;
+              //Serial.println(stepsToCalibrate);
+            }
           }
         }
       } else {
@@ -233,7 +253,7 @@ void setup() {
   memset(&new_msg, 0, sizeof(new_msg));
   strncpy(new_msg.str, "Hello!", sizeof(new_msg.str));
   new_msg.priority = self_priority;
-  new_msg.sender = DEVICE_ID;
+  new_msg.id = DEVICE_ID;
 }
 
 void loop() {
@@ -271,7 +291,16 @@ void loop() {
     }
   } else {
     if (!device_is_master) {
-      if (ticking) tickClock();
+      if (ticking) {
+        Serial.println("tick stage");
+        tickClock();
+      } else if (calibrateCenter) {
+        Serial.println("center stage");
+        calibrate(0);
+      } else if (calibrateAngle) {
+        Serial.println("angle stage");
+        calibrateToStep(stepsToCalibrate);
+      }
       // Send a message to the master
       // new_msg.count = sent_msg_count + 1;
       // new_msg.data = random(10000);
@@ -287,7 +316,27 @@ void loop() {
   delay(ESPNOW_SEND_INTERVAL_MS);
 }
 
+void calibrateToStep(int steps) {
+  if (locked) {
+    new_msg.secondCal = 1;
+    sendToMaster();
+    return;
+  }
+  int currentStep = 0;
+  while (currentStep < steps) {
+    myStepper.step(1);
+    delay(1);
+    currentStep++;
+  }
+  locked = true;
+}
+
 void calibrate(int direction) {
+  if (locked) {
+    new_msg.firstCal = 1;
+    sendToMaster();
+    return;
+  }
   int currentStep = 0;
   int minLight = 4095;
   int stepsToMinLight = 0;
@@ -318,12 +367,11 @@ void calibrate(int direction) {
     myStepper.step(1);
     stepsToPosition--;
   }
-  calibrateLeft = false;
-  calibrateRight = false;
-  calibrateCenter = false;
+  locked = true;
 }
 
 void tickClock() {
+  if (locked) return;
   int remainingSteps = steps;
   while (remainingSteps > 0) {
     myStepper.step(1);
@@ -337,8 +385,8 @@ void sendToMaster() {
     if (!master_peer->send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
       Serial.printf("Failed to send message to peer " MACSTR "\n", MAC2STR(peer->addr()));
     } else {
-      Serial.printf(
-        "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", MAC2STR(peer->addr()), new_msg.data);
+      // Serial.printf(
+      //   "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", MAC2STR(peer->addr()), new_msg.data);
     }
   }
 }
