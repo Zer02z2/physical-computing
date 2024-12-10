@@ -19,18 +19,21 @@
 #define CALIBRATE_RIGHT 2
 #define CALIBRATE_CENTER 3
 #define CALIBRATE_ANGLE 4
+#define CALIBRATE_ANGLE 4
+#define TURN_CLOCKWISE 5
+#define TURN_ANTICLOCKWISE 6
 
 #define DEVICE_ID 0
-
-
-int calibrateRightPin = 6;
-int calibrateLeftPin = 5;
 
 RTC_DS3231 rtc;
 int lastMin = 0;
 
 bool firstCalibrate = true;
 bool secondCalibrate = false;
+bool transit = false;
+bool pulseState = false;
+int currentTransitTarget = 0;
+int transitDirection = 1;
 int firstCalibrateResults[ESPNOW_PEER_COUNT];
 int calibrateCount = 0;
 
@@ -208,9 +211,6 @@ void setup() {
   Serial.begin(115200);
   // while (!Serial) 1;
 
-  pinMode(calibrateLeftPin, INPUT);
-  pinMode(calibrateRightPin, INPUT);
-
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
     Serial.flush();
@@ -303,8 +303,7 @@ void loop() {
       } else {
         Serial.println("Waiting for all peers to be ready...");
       }
-    }
-    else {
+    } else {
       //Serial.println(current_peer_count);
     }
   } else {
@@ -332,8 +331,7 @@ void loop() {
             int hour = now.hour();
             if (hour >= 6 && hour <= 18) {
               new_msg.command = CALIBRATE_LEFT;
-            }
-            else {
+            } else {
               new_msg.command = CALIBRATE_RIGHT;
             }
           }
@@ -352,14 +350,6 @@ void loop() {
         int steps = (minute * 60 + second) / 7 + extraSteps;
         Serial.println(steps);
         new_msg.steps = steps;
-        sendToPeer();
-      } else if (digitalRead(calibrateLeftPin) == HIGH) {
-        new_msg.command = CALIBRATE_LEFT;
-        new_msg.target = 1;
-        sendToPeer();
-      } else if (digitalRead(calibrateRightPin) == HIGH) {
-        new_msg.command = CALIBRATE_RIGHT;
-        new_msg.target = 1;
         sendToPeer();
       } else {
         Serial.println("pulse state");
