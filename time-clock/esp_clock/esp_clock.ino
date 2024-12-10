@@ -9,7 +9,7 @@
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
 #define ESPNOW_WIFI_CHANNEL 2
-#define ESPNOW_PEER_COUNT 1
+#define ESPNOW_PEER_COUNT 6
 #define ESPNOW_SEND_INTERVAL_MS 100
 // Primary Master Key (PMK) and Local Master Key (LMK)
 #define ESPNOW_EXAMPLE_PMK "pmk19991216"
@@ -21,11 +21,11 @@
 #define CALIBRATE_CENTER 3
 #define CALIBRATE_ANGLE 4
 
-#define DEVICE_ID 1
+#define DEVICE_ID 6
 
 const int stepsPerRevolution = 512;
 Stepper myStepper(stepsPerRevolution, 5, 6, 9, 10);
-int steps = 34;
+int steps = 1;
 
 const int lightPin = A5;
 bool calibrateLeft = false;
@@ -113,6 +113,9 @@ public:
         // Serial.println(msg->target);
         if (msg->target == DEVICE_ID) {
           if (msg->command == PULSE_MESSAGE) {
+            calibrateCenter = false;
+            calibrateLeft = false;
+            calibrateRight = false;
             ticking = true;
             locked = false;
             calibrateCenter = false;
@@ -122,8 +125,20 @@ public:
               locked = false;
               calibrateCenter = true;
             }
+          } else if (msg->command == CALIBRATE_LEFT) {
+            if (calibrateLeft == false) {
+              locked = false;
+              calibrateLeft = true;
+            }
+          } else if (msg->command == CALIBRATE_RIGHT) {
+            if (calibrateRight == false) {
+              locked = false;
+              calibrateRight = true;
+            }
           } else if (msg->command == CALIBRATE_ANGLE) {
             calibrateCenter = false;
+            calibrateLeft = false;
+            calibrateRight = false;
             if (calibrateAngle == false) {
               locked = false;
               calibrateAngle = true;
@@ -297,6 +312,12 @@ void loop() {
       } else if (calibrateCenter) {
         Serial.println("center stage");
         calibrate(0);
+      } else if (calibrateLeft) {
+        Serial.println("left stage");
+        calibrate(-1);
+      } else if (calibrateRight) {
+        Serial.println("right stage");
+        calibrate(1);
       } else if (calibrateAngle) {
         Serial.println("angle stage");
         calibrateToStep(stepsToCalibrate);

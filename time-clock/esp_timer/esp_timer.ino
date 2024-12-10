@@ -8,8 +8,8 @@
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
 #define ESPNOW_WIFI_CHANNEL 2
-#define ESPNOW_PEER_COUNT 1
-#define ESPNOW_SEND_INTERVAL_MS 100
+#define ESPNOW_PEER_COUNT 6
+#define ESPNOW_SEND_INTERVAL_MS 10
 // Primary Master Key (PMK) and Local Master Key (LMK)
 #define ESPNOW_EXAMPLE_PMK "pmk19991216"
 #define ESPNOW_EXAMPLE_LMK "lmk19991216"
@@ -117,7 +117,7 @@ public:
           firstCalibrate = false;
           secondCalibrate = true;
         } else if (secondCalibrate) {
-          Serial.println(msg->secondCal);
+          //Serial.println(msg->secondCal);
           if (msg->secondCal == 1) {
             secondCalibrate = false;
           }
@@ -206,7 +206,7 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
 void setup() {
   uint8_t self_mac[6];
   Serial.begin(115200);
-  //while (!Serial) 1;
+  // while (!Serial) 1;
 
   pinMode(calibrateLeftPin, INPUT);
   pinMode(calibrateRightPin, INPUT);
@@ -304,6 +304,9 @@ void loop() {
         Serial.println("Waiting for all peers to be ready...");
       }
     }
+    else {
+      //Serial.println(current_peer_count);
+    }
   } else {
     if (!device_is_master) {
       // Send a message to the master
@@ -318,16 +321,36 @@ void loop() {
     } else {
       if (firstCalibrate) {
         Serial.println("first cal");
-        new_msg.command = CALIBRATE_CENTER;
-        new_msg.target = 1;
-        sendToPeer();
+        int currentTarget = findCurrentTarget();
+        for (int i = 1; i <= ESPNOW_PEER_COUNT; i++) {
+          if (i < currentTarget) {
+            new_msg.command = CALIBRATE_RIGHT;
+          } else if (i > currentTarget) {
+            new_msg.command = CALIBRATE_LEFT;
+          } else if (i == currentTarget) {
+            DateTime now = rtc.now();
+            int hour = now.hour();
+            if (hour >= 6 && hour <= 18) {
+              new_msg.command = CALIBRATE_LEFT;
+            }
+            else {
+              new_msg.command = CALIBRATE_RIGHT;
+            }
+          }
+          new_msg.target = i;
+          sendToPeer();
+        }
       } else if (secondCalibrate) {
         Serial.println("second cal");
         new_msg.command = CALIBRATE_ANGLE;
-        new_msg.target = 1;
+        new_msg.target = findCurrentTarget();
         DateTime now = rtc.now();
+        int hour = now.hour();
         int minute = now.minute();
-        int steps = 512 * 4 / 60 * minute;
+        int second = now.second();
+        int extraSteps = hour % 2 == 0 ? 0 : 512;
+        int steps = (minute * 60 + second) / 7 + extraSteps;
+        Serial.println(steps);
         new_msg.steps = steps;
         sendToPeer();
       } else if (digitalRead(calibrateLeftPin) == HIGH) {
@@ -339,14 +362,17 @@ void loop() {
         new_msg.target = 1;
         sendToPeer();
       } else {
+        Serial.println("pulse state");
         DateTime now = rtc.now();
         int minute = now.minute();
         if (minute != lastMin) {
           new_msg.command = PULSE_MESSAGE;
-          new_msg.target = 1;
+          new_msg.target = findCurrentTarget();
           lastMin = minute;
-          sendToPeer();
+        } else {
+          new_msg.command = 999;
         }
+        sendToPeer();
       }
     }
   }
@@ -361,6 +387,7 @@ void sendToPeer() {
       // Serial.printf(
       //   "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", new_msg.command, new_msg.target);
     }
+    delay(ESPNOW_SEND_INTERVAL_MS);
   }
 }
 
@@ -373,4 +400,32 @@ void sendMessage(int number) {
   if (!broadcast_peer.send_message((uint8_t *)buffer, sizeof(buffer))) {
     Serial.println("Failed to broadcast message");
   }
+}
+
+int findCurrentTarget() {
+  DateTime now = rtc.now();
+  int hour = now.hour();
+  int result = 0;
+  if (hour >= 4 && hour < 8) {
+    result = 1;
+  } else if (hour >= 8 && hour < 10) {
+    result = 2;
+  } else if (hour >= 10 && hour < 12) {
+    result = 3;
+  } else if (hour >= 12 && hour < 14) {
+    result = 4;
+  } else if (hour >= 14 && hour < 16) {
+    result = 5;
+  } else if (hour >= 16 && hour < 20) {
+    result = 6;
+  } else if (hour >= 20 && hour < 22) {
+    result = 5;
+  } else if (hour >= 22 && hour < 24) {
+    result = 4;
+  } else if (hour >= 0 && hour < 2) {
+    result = 3;
+  } else {
+    result = 2;
+  }
+  return result;
 }
