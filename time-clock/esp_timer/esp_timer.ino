@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "RTClib.h"
+#include <Adafruit_SleepyDog.h>
 
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
@@ -30,12 +31,17 @@ int lastMin = 0;
 
 bool firstCalibrate = true;
 bool secondCalibrate = false;
-bool transit = false;
 bool pulseState = false;
-int currentTransitTarget = 0;
-int transitDirection = 1;
 int firstCalibrateResults[ESPNOW_PEER_COUNT];
 int calibrateCount = 0;
+long aliveList[ESPNOW_PEER_COUNT];
+long systemBootTime;
+int turnDirection = 1;
+int currentTurnTarget = 0;
+int currentTurnTimes = 10;
+int totalTurnTimes = ESPNOW_PEER_COUNT * 2 - 2;
+bool turnState = false;
+int nextClockDirection = 1;
 
 typedef struct {
   uint32_t count;
@@ -46,7 +52,9 @@ typedef struct {
   uint32_t id;
   uint32_t firstCal;
   uint32_t secondCal;
+  uint32_t turn;
   uint32_t steps;
+  uint32_t bounce;
   bool ready;
   char str[7];
 } __attribute__((packed)) esp_now_data_t;
@@ -60,6 +68,34 @@ bool master_decided = false;     // Flag to indicate if the master has been deci
 uint32_t sent_msg_count = 0;     // Counter for the messages sent. Only starts counting after all peers have been found
 uint32_t recv_msg_count = 0;     // Counter for the messages received. Only starts counting after all peers have been found
 esp_now_data_t new_msg;          // Message that will be sent to the peers
+
+int findCurrentTarget() {
+  DateTime now = rtc.now();
+  int hour = now.hour();
+  int result = 0;
+  if (hour >= 4 && hour < 8) {
+    result = 1;
+  } else if (hour >= 8 && hour < 10) {
+    result = 2;
+  } else if (hour >= 10 && hour < 12) {
+    result = 3;
+  } else if (hour >= 12 && hour < 14) {
+    result = 4;
+  } else if (hour >= 14 && hour < 16) {
+    result = 5;
+  } else if (hour >= 16 && hour < 20) {
+    result = 6;
+  } else if (hour >= 20 && hour < 22) {
+    result = 5;
+  } else if (hour >= 22 && hour < 24) {
+    result = 4;
+  } else if (hour >= 0 && hour < 2) {
+    result = 3;
+  } else {
+    result = 2;
+  }
+  return result;
+}
 
 class ESP_NOW_Network_Peer : public ESP_NOW_Peer {
 public:
@@ -98,9 +134,12 @@ public:
       Serial.printf("Peer " MACSTR " reported ready\n", MAC2STR(addr()));
       peer_ready = true;
     }
-
     if (!broadcast) {
-      recv_msg_count++;
+      //recv_msg_count++;
+      int index = msg->id - 1;
+      DateTime now = rtc.now();
+      long unixTime = now.unixtime();
+      aliveList[index] = unixTime;
       if (device_is_master) {
         // Serial.printf("Received a message from peer " MACSTR "\n", MAC2STR(addr()));
         if (firstCalibrate) {
@@ -123,6 +162,21 @@ public:
           //Serial.println(msg->secondCal);
           if (msg->secondCal == 1) {
             secondCalibrate = false;
+            turnState = true;
+            currentTurnTarget = findCurrentTarget();
+          }
+        } else if (turnState) {
+          if (msg->id == currentTurnTarget) {
+            if (msg->turn == 1) {
+              currentTurnTimes++;
+              int currentClock = findCurrentTarget();
+              if (currentTurnTarget == currentClock && currentTurnTimes >= totalTurnTimes) {
+                turnDirection *= -1;
+                currentTurnTimes = 0;
+              }
+              if (currentTurnTarget == 1 || currentTurnTarget == 6) nextClockDirection *= -1;
+              currentTurnTarget += nextClockDirection;
+            }
           }
         }
       } else if (peer_is_master) {
@@ -207,9 +261,10 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
 }
 
 void setup() {
+  Watchdog.enable(4000);
   uint8_t self_mac[6];
   Serial.begin(115200);
-  // while (!Serial) 1;
+  while (!Serial) 1;
 
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
@@ -269,10 +324,21 @@ void setup() {
 
   DateTime now = rtc.now();
   lastMin = now.minute();
+  long unixTime = now.unixtime();
+  systemBootTime = unixTime;
+  for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
+    aliveList[i] = unixTime;
+  }
 }
 
 void loop() {
+  Watchdog.reset();
   if (!master_decided) {
+    DateTime now = rtc.now();
+    long unixTime = now.unixtime();
+    if (unixTime - systemBootTime > 10) {
+      while (true) 1;
+    }
     // Broadcast the priority to find the master
     if (!broadcast_peer.send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
       Serial.println("Failed to broadcast message");
@@ -285,6 +351,12 @@ void loop() {
         Serial.println("All peers are ready");
         // Check which device has the highest priority
         master_decided = true;
+        // Reset alive time
+        DateTime now = rtc.now();
+        long unixTime = now.unixtime();
+        for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
+          aliveList[i] = unixTime;
+        }
         uint32_t highest_priority = check_highest_priority();
         if (highest_priority == self_priority) {
           device_is_master = true;
@@ -307,6 +379,7 @@ void loop() {
       //Serial.println(current_peer_count);
     }
   } else {
+    checkIfAlive();
     if (!device_is_master) {
       // Send a message to the master
       new_msg.count = sent_msg_count + 1;
@@ -342,16 +415,16 @@ void loop() {
         Serial.println("second cal");
         new_msg.command = CALIBRATE_ANGLE;
         new_msg.target = findCurrentTarget();
-        DateTime now = rtc.now();
-        int hour = now.hour();
-        int minute = now.minute();
-        int second = now.second();
-        int extraSteps = hour % 2 == 0 ? 0 : 512;
-        int steps = (minute * 60 + second) / 7 + extraSteps;
-        Serial.println(steps);
-        new_msg.steps = steps;
+        // DateTime now = rtc.now();
+        // int hour = now.hour();
+        // int minute = now.minute();
+        // int second = now.second();
+        // int extraSteps = hour % 2 == 0 ? 0 : 512;
+        // int steps = (minute * 60 + second) / 7 + extraSteps;
+        // Serial.println(steps);
+        new_msg.steps = 0;
         sendToPeer();
-      } else {
+      } else if (pulseState) {
         Serial.println("pulse state");
         DateTime now = rtc.now();
         int minute = now.minute();
@@ -362,6 +435,49 @@ void loop() {
         } else {
           new_msg.command = 999;
         }
+        sendToPeer();
+      } else if (turnState) {
+        Serial.println("turn state");
+        int currentClock = findCurrentTarget();
+        if (currentTurnTarget == currentClock) {
+          DateTime now = rtc.now();
+          int hour = now.hour();
+          int minute = now.minute();
+          int second = now.second();
+          int extraSteps = hour % 2 == 0 ? 0 : 512;
+          int steps = (minute * 60 + second) / 7 + extraSteps;
+          if (turnDirection == -1) {
+            steps = 512 * 2 - steps;
+          }
+          if (currentClock == 1) {
+            if (hour >= 4 && hour < 6 && turnDirection == -1) {
+              steps += 512 * 2;
+            } else if (hour >= 6 && hour < 8 && turnDirection == 1) {
+              steps += 512 * 2;
+            }
+          } else if (currentClock == 6) {
+            if (hour >= 16 && hour < 18 && turnDirection == -1) {
+              steps += 512 * 2;
+            } else if (hour >= 18 && hour < 20 && turnDirection == 1) {
+              steps += 512 * 2;
+            }
+          }
+          new_msg.bounce = true;
+          new_msg.steps = steps;
+        } else {
+          new_msg.bounce = false;
+          if (currentTurnTarget == 0 || currentTurnTarget == 6) {
+            new_msg.steps = 512 * 4;
+          } else {
+            new_msg.steps = 512 * 2;
+          }
+        }
+        if (turnDirection == 1) {
+          new_msg.command = TURN_CLOCKWISE;
+        } else {
+          new_msg.command = TURN_ANTICLOCKWISE;
+        }
+        new_msg.target = currentTurnTarget;
         sendToPeer();
       }
     }
@@ -392,30 +508,12 @@ void sendMessage(int number) {
   }
 }
 
-int findCurrentTarget() {
+void checkIfAlive() {
   DateTime now = rtc.now();
-  int hour = now.hour();
-  int result = 0;
-  if (hour >= 4 && hour < 8) {
-    result = 1;
-  } else if (hour >= 8 && hour < 10) {
-    result = 2;
-  } else if (hour >= 10 && hour < 12) {
-    result = 3;
-  } else if (hour >= 12 && hour < 14) {
-    result = 4;
-  } else if (hour >= 14 && hour < 16) {
-    result = 5;
-  } else if (hour >= 16 && hour < 20) {
-    result = 6;
-  } else if (hour >= 20 && hour < 22) {
-    result = 5;
-  } else if (hour >= 22 && hour < 24) {
-    result = 4;
-  } else if (hour >= 0 && hour < 2) {
-    result = 3;
-  } else {
-    result = 2;
+  long unixTime = now.unixtime();
+  for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
+    if (unixTime - aliveList[i] > 10) {
+      while (true) 1;
+    }
   }
-  return result;
 }

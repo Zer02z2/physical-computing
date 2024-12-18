@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+#include <Adafruit_SleepyDog.h>
 
 // Wi-Fi interface to be used by the ESP-NOW protocol
 #define ESPNOW_WIFI_IFACE WIFI_IF_STA
@@ -19,6 +20,7 @@
 #define CALIBRATE_LEFT 1
 #define CALIBRATE_RIGHT 2
 #define CALIBRATE_CENTER 3
+#define CALIBRATE_ANGLE 4
 #define CALIBRATE_ANGLE 4
 #define TURN_CLOCKWISE 5
 #define TURN_ANTICLOCKWISE 6
@@ -35,8 +37,14 @@ bool calibrateRight = false;
 bool calibrateCenter = false;
 bool calibrateAngle = false;
 bool ticking = false;
+bool turnClockwise = false;
+bool turnAntiClockwise = false;
 bool locked = true;
 int stepsToCalibrate = 0;
+int stepsToTurn = 0;
+bool bounce = false;
+long systemBootTime;
+long lastAliveMessageTime;
 
 typedef struct {
   uint32_t count;
@@ -47,7 +55,9 @@ typedef struct {
   uint32_t id;
   uint32_t firstCal;
   uint32_t secondCal;
+  uint32_t turn;
   uint32_t steps;
+  uint32_t bounce;
   bool ready;
   char str[7];
 } __attribute__((packed)) esp_now_data_t;
@@ -101,27 +111,47 @@ public:
     }
 
     if (!broadcast) {
-      recv_msg_count++;
       if (device_is_master) {
         Serial.printf("Received a message from peer " MACSTR "\n", MAC2STR(addr()));
         Serial.printf("  Count: %lu\n", msg->count);
         Serial.printf("  Random data: %lu\n", msg->data);
       } else if (peer_is_master) {
-        // Serial.print("Command: ");
-        // Serial.print(msg->command);
-        // Serial.print(", Steps: ");
-        // Serial.print(msg->steps);
-        // Serial.print(", Target: ");
-        // Serial.println(msg->target);
+        lastAliveMessageTime = millis();
         if (msg->target == DEVICE_ID) {
-          if (msg->command == PULSE_MESSAGE) {
+          Serial.println(msg->command);
+          if (msg->command == TURN_CLOCKWISE) {
             calibrateCenter = false;
             calibrateLeft = false;
             calibrateRight = false;
+            calibrateAngle = false;
+            ticking = false;
+            turnAntiClockwise = false;
+            if (turnClockwise == false) {
+              turnClockwise = true;
+              locked = false;
+            }
+            stepsToTurn = msg->steps;
+            bounce = msg->bounce;
+          } else if (msg->command == TURN_ANTICLOCKWISE) {
+            calibrateCenter = false;
+            calibrateLeft = false;
+            calibrateRight = false;
+            calibrateAngle = false;
+            ticking = false;
+            turnClockwise = false;
+            if (turnAntiClockwise == false) {
+              turnAntiClockwise = true;
+              locked = false;
+            }
+            stepsToTurn = msg->steps;
+            bounce = msg->bounce;
+          } else if (msg->command == PULSE_MESSAGE) {
+            calibrateCenter = false;
+            calibrateLeft = false;
+            calibrateRight = false;
+            calibrateAngle = false;
             ticking = true;
             locked = false;
-            calibrateCenter = false;
-            calibrateAngle = false;
           } else if (msg->command == CALIBRATE_CENTER) {
             if (calibrateCenter == false) {
               locked = false;
@@ -151,6 +181,9 @@ public:
         }
       } else {
         Serial.printf("Peer " MACSTR " says: %s\n", MAC2STR(addr()), msg->str);
+        new_msg.turn = 0;
+        turnClockwise = false;
+        turnAntiClockwise = false;
       }
     }
   }
@@ -228,9 +261,12 @@ void register_new_peer(const esp_now_recv_info_t *info, const uint8_t *data, int
 }
 
 void setup() {
+  Watchdog.enable(5000);
+  lastAliveMessageTime = millis();
+  systemBootTime = millis();
   uint8_t self_mac[6];
   Serial.begin(115200);
-  //while (!Serial) 1;
+  // while (!Serial) 1;
   myStepper.setSpeed(60);
   pinMode(lightPin, INPUT);
 
@@ -275,6 +311,10 @@ void setup() {
 
 void loop() {
   if (!master_decided) {
+    if (millis() - systemBootTime > 5000) {
+      Serial.println("rebooting now...");
+      while (true) 1;
+    }
     // Broadcast the priority to find the master
     if (!broadcast_peer.send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
       Serial.println("Failed to broadcast message");
@@ -308,6 +348,7 @@ void loop() {
     }
   } else {
     if (!device_is_master) {
+      checkAlive();
       if (ticking) {
         Serial.println("tick stage");
         tickClock();
@@ -323,20 +364,42 @@ void loop() {
       } else if (calibrateAngle) {
         Serial.println("angle stage");
         calibrateToStep(stepsToCalibrate);
+      } else if (turnClockwise) {
+        turnToStep(1, stepsToTurn);
+      } else if (turnAntiClockwise) {
+        turnToStep(-1, stepsToTurn);
+      } else {
+        sendAliveMessage();
       }
-      // Send a message to the master
-      // new_msg.count = sent_msg_count + 1;
-      // new_msg.data = random(10000);
-      // if (!master_peer->send_message((const uint8_t *)&new_msg, sizeof(new_msg))) {
-      //   Serial.println("Failed to send message to the master");
-      // } else {
-      //   Serial.printf("Sent message to the master. Count: %lu, Data: %lu\n", new_msg.count, new_msg.data);
-      //   sent_msg_count++;
-      // }
     }
   }
 
   delay(ESPNOW_SEND_INTERVAL_MS);
+}
+
+void turnToStep(int direction, int steps) {
+  if (locked) {
+    new_msg.turn = 1;
+    sendToMaster();
+    return;
+  }
+  int currentStep = 0;
+  while (currentStep < steps) {
+    myStepper.step(direction);
+    delay(5);
+    currentStep++;
+    keepAlive();
+  }
+  if (bounce == true) {
+    currentStep = 0;
+    while (currentStep < steps) {
+      myStepper.step(-direction);
+      delay(5);
+      currentStep++;
+      keepAlive();
+    }
+  }
+  locked = true;
 }
 
 void calibrateToStep(int steps) {
@@ -350,6 +413,7 @@ void calibrateToStep(int steps) {
     myStepper.step(1);
     delay(1);
     currentStep++;
+    keepAlive();
   }
   locked = true;
 }
@@ -364,6 +428,7 @@ void calibrate(int direction) {
   int minLight = 4095;
   int stepsToMinLight = 0;
   while (currentStep < stepsPerRevolution * 4) {
+    keepAlive();
     myStepper.step(1);
     delay(1);
     const int lightReading = analogRead(lightPin);
@@ -389,6 +454,7 @@ void calibrate(int direction) {
   while (stepsToPosition > 0) {
     myStepper.step(1);
     stepsToPosition--;
+    keepAlive();
   }
   locked = true;
 }
@@ -399,6 +465,7 @@ void tickClock() {
   while (remainingSteps > 0) {
     myStepper.step(1);
     remainingSteps--;
+    keepAlive();
   }
   ticking = false;
 }
@@ -412,4 +479,22 @@ void sendToMaster() {
       //   "Sent message to peer " MACSTR ". Recv: %lu, Sent: %lu, Avg: %lu\n", MAC2STR(peer->addr()), new_msg.data);
     }
   }
+}
+
+void checkAlive() {
+  if (millis() - lastAliveMessageTime > 5000 && millis() - lastAliveMessageTime < 0) {
+    while (true) 1;
+  }
+  else {
+    Watchdog.reset();
+  }
+}
+
+void keepAlive() {
+  lastAliveMessageTime = millis();
+  Watchdog.reset();
+}
+
+void sendAliveMessage() {
+  sendToMaster();
 }
