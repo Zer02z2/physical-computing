@@ -177,6 +177,10 @@ public:
               stepsToCalibrate = msg->steps;
               //Serial.println(stepsToCalibrate);
             }
+          } else {
+            turnClockwise = false;
+            turnAntiClockwise = false;
+            new_msg.turn = 0;
           }
         }
       } else {
@@ -365,10 +369,13 @@ void loop() {
         Serial.println("angle stage");
         calibrateToStep(stepsToCalibrate);
       } else if (turnClockwise) {
+        Serial.println("turn clockwise stage");
         turnToStep(1, stepsToTurn);
       } else if (turnAntiClockwise) {
+        Serial.println("turn anti-clockwise stage");
         turnToStep(-1, stepsToTurn);
       } else {
+        Serial.println("send alive stage");
         sendAliveMessage();
       }
     }
@@ -482,10 +489,9 @@ void sendToMaster() {
 }
 
 void checkAlive() {
-  if (millis() - lastAliveMessageTime > 5000 && millis() - lastAliveMessageTime < 0) {
+  if (millis() - lastAliveMessageTime > 5000 || millis() - lastAliveMessageTime < 0) {
     while (true) 1;
-  }
-  else {
+  } else {
     Watchdog.reset();
   }
 }
@@ -496,5 +502,6 @@ void keepAlive() {
 }
 
 void sendAliveMessage() {
+  new_msg.turn = 0;
   sendToMaster();
 }

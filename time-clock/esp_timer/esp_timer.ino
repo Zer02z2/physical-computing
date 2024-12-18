@@ -39,7 +39,7 @@ long systemBootTime;
 int turnDirection = 1;
 int currentTurnTarget = 0;
 int currentTurnTimes = 10;
-int totalTurnTimes = ESPNOW_PEER_COUNT * 2 - 2;
+int totalTurnTimes = ESPNOW_PEER_COUNT * 2 - 4;
 bool turnState = false;
 int nextClockDirection = 1;
 
@@ -171,10 +171,15 @@ public:
               currentTurnTimes++;
               int currentClock = findCurrentTarget();
               if (currentTurnTarget == currentClock && currentTurnTimes >= totalTurnTimes) {
-                turnDirection *= -1;
                 currentTurnTimes = 0;
+                turnDirection = turnDirection * -1;
+                nextClockDirection = nextClockDirection * -1;
               }
-              if (currentTurnTarget == 1 || currentTurnTarget == 6) nextClockDirection *= -1;
+              if (currentTurnTarget == 1) {
+                nextClockDirection = 1;
+              } else if (currentTurnTarget == 6) {
+                nextClockDirection = -1;
+              }
               currentTurnTarget += nextClockDirection;
             }
           }
@@ -264,7 +269,7 @@ void setup() {
   Watchdog.enable(4000);
   uint8_t self_mac[6];
   Serial.begin(115200);
-  while (!Serial) 1;
+  // while (!Serial) 1;
 
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
@@ -324,10 +329,16 @@ void setup() {
 
   DateTime now = rtc.now();
   lastMin = now.minute();
+  int hour = now.hour();
   long unixTime = now.unixtime();
   systemBootTime = unixTime;
   for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
     aliveList[i] = unixTime;
+  }
+  if (hour >= 6 && hour < 18) {
+    nextClockDirection = 1;
+  } else {
+    nextClockDirection = -1;
   }
 }
 
@@ -438,8 +449,12 @@ void loop() {
         sendToPeer();
       } else if (turnState) {
         Serial.println("turn state");
+        Serial.print("CurrentTurnTarget: ");
+        Serial.println(currentTurnTarget);
+        Serial.print("CurrentTurnTimes: ");
+        Serial.println(currentTurnTimes);
         int currentClock = findCurrentTarget();
-        if (currentTurnTarget == currentClock) {
+        if (currentTurnTarget == currentClock && currentTurnTimes >= totalTurnTimes) {
           DateTime now = rtc.now();
           int hour = now.hour();
           int minute = now.minute();
@@ -466,7 +481,7 @@ void loop() {
           new_msg.steps = steps;
         } else {
           new_msg.bounce = false;
-          if (currentTurnTarget == 0 || currentTurnTarget == 6) {
+          if (currentTurnTarget == 1 || currentTurnTarget == 6) {
             new_msg.steps = 512 * 4;
           } else {
             new_msg.steps = 512 * 2;
@@ -479,6 +494,13 @@ void loop() {
         }
         new_msg.target = currentTurnTarget;
         sendToPeer();
+        for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
+          if (i + 1 != currentTurnTarget) {
+            new_msg.command = 749;
+            new_msg.target = i + 1;
+            sendToPeer();
+          }
+        }
       }
     }
   }
@@ -512,7 +534,7 @@ void checkIfAlive() {
   DateTime now = rtc.now();
   long unixTime = now.unixtime();
   for (int i = 0; i < ESPNOW_PEER_COUNT; i++) {
-    if (unixTime - aliveList[i] > 10) {
+    if (unixTime - aliveList[i] > 13) {
       while (true) 1;
     }
   }
