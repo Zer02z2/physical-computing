@@ -102,13 +102,12 @@ void update_power_display() {
   display.setCursor(0, 0);
 
   // Mode 0, display volts and amps.
-  printSIValue(loadvoltage, "V:", 2, 8);
+  printSIValue(loadvoltage, "V:", 2, 7);
   display.setCursor(0, 16);
-  printSIValue(current_mA / 1000.0, "A:", 5, 8);
+  printSIValue(current_mA / 1000.0, "A:", 5, 7);
 
   display.setTextSize(1);
-  display.setCursor(96, 0);
-  printSIValue(loadvoltage * current_mA / 1000.0, "W:", 5, 4);
+  printWatt(loadvoltage * current_mA / 1000.0, 5, 5, 96, 0);
 
   display.display();
 }
@@ -161,6 +160,65 @@ void printSIValue(float value, const char* units, int precision, int maxWidth) {
   for (int i = 0; i < padding; ++i) {
     display.print(' ');
   }
+
+  // Finally, print the value!
+  display.print(value, actualPrecision);
+}
+
+void printWatt(float value, int precision, int maxWidth, int xCursor, int yCursor) {
+  // Print a value in SI units with the units left justified and value right justified.
+  // Will switch to kilo prefix if value is ablove 1000.
+
+  display.setCursor(xCursor, yCursor);
+  char* units = "W:";
+
+  // int firstLineWidth = maxWidth;
+  // firstLineWidth -= strlen(units);
+  // if (fabs(value) < 1.00) {
+  //   firstLineWidth -= 1;
+  // }
+  // for (int i = 0; i < firstLineWidth; ++i) {
+  //   display.print(' ');
+  // }
+
+  // Add milli prefix if low value.
+  if (fabs(value) < 1.00) {
+    display.print('m');
+    value *= 1000.0;
+    precision = max(0, precision - 3);
+  }
+
+  // Print units.
+  display.print(units);
+
+  // Leave room for negative sign if value is negative.
+  if (value < 0.0) {
+    maxWidth -= 1;
+  }
+
+  display.setCursor(xCursor, yCursor + 8);
+
+  // Find how many digits are in value.
+  int digits = ceil(log10(fabs(value)));
+  if (fabs(value) < 1.0) {
+    digits = 1;  // Leave room for 0 when value is below 0.
+  }
+
+  // Handle if not enough width to display value, just print dashes.
+  if (digits > maxWidth) {
+    // Fill width with dashes (and add extra dash for negative values);
+    for (int i = 0; i < maxWidth; ++i) {
+      display.print('-');
+    }
+    if (value < 0.0) {
+      display.print('-');
+    }
+    return;
+  }
+
+  // Compute actual precision for printed value based on space left after
+  // printing digits and decimal point.  Clamp within 0 to desired precision.
+  int actualPrecision = constrain(maxWidth - digits - 1, 0, precision);
 
   // Finally, print the value!
   display.print(value, actualPrecision);
