@@ -70,6 +70,10 @@ void update_power_display() {
   float busvoltage = ina219.getBusVoltage_V();
   float current_mA = ina219.getCurrent_mA();
 
+  if (shuntvoltage < 0.0) {
+    current_mA = 0.0;
+  }
+
   // Compute load voltage, power, and milliamp-hours.
   float loadvoltage = busvoltage + (shuntvoltage / 1000);
   float power_mW = loadvoltage * current_mA;
@@ -107,7 +111,8 @@ void update_power_display() {
   printSIValue(current_mA / 1000.0, "A:", 5, 7);
 
   display.setTextSize(1);
-  printWatt(loadvoltage * current_mA / 1000.0, 5, 5, 96, 0);
+  printSIValueVertical(power_mW / 1000.0, "W:", 5, 5, 96, 0);
+  printSIValueVertical(total_mAH / 1000.0, "AH:", 5, 5, 96, 16);
 
   display.display();
 }
@@ -165,21 +170,11 @@ void printSIValue(float value, const char* units, int precision, int maxWidth) {
   display.print(value, actualPrecision);
 }
 
-void printWatt(float value, int precision, int maxWidth, int xCursor, int yCursor) {
+void printSIValueVertical(float value, const char* units, int precision, int maxWidth, int xCursor, int yCursor) {
   // Print a value in SI units with the units left justified and value right justified.
   // Will switch to kilo prefix if value is ablove 1000.
 
   display.setCursor(xCursor, yCursor);
-  char* units = "W:";
-
-  // int firstLineWidth = maxWidth;
-  // firstLineWidth -= strlen(units);
-  // if (fabs(value) < 1.00) {
-  //   firstLineWidth -= 1;
-  // }
-  // for (int i = 0; i < firstLineWidth; ++i) {
-  //   display.print(' ');
-  // }
 
   // Add milli prefix if low value.
   if (fabs(value) < 1.00) {
