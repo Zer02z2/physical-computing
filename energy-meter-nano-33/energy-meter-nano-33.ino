@@ -27,6 +27,13 @@ Adafruit_INA219 ina219;
 uint32_t total_sec = 0;
 float total_mA = 0.0;
 
+int powerButton = 2;
+bool lastButtonState = 0;
+bool system_on = false;
+
+int updateInterval = 500;
+long lastUpdateTime = 0;
+
 
 void setup() {
   Serial.begin(115200);
@@ -60,8 +67,29 @@ void setup() {
 }
 
 void loop() {
-  update_power_display();
-  delay(500);
+  int reading = digitalRead(powerButton);
+  if (reading == HIGH && reading != lastButtonState) {
+    system_on = !system_on;
+  }
+  lastButtonState = reading;
+
+  if (system_on) {
+    if (millis() - lastUpdateTime > updateInterval) {
+      update_power_display();
+      lastUpdateTime = millis();
+    }
+  } else {
+    show_screen_saver();
+  }
+  delay(100);
+}
+
+void show_screen_saver() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("Off");
+  display.display();
 }
 
 void update_power_display() {
@@ -69,10 +97,6 @@ void update_power_display() {
   float shuntvoltage = ina219.getShuntVoltage_mV();
   float busvoltage = ina219.getBusVoltage_V();
   float current_mA = ina219.getCurrent_mA();
-
-  if (shuntvoltage < 0.0) {
-    current_mA = 0.0;
-  }
 
   // Compute load voltage, power, and milliamp-hours.
   float loadvoltage = busvoltage + (shuntvoltage / 1000);
