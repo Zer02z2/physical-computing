@@ -24,6 +24,7 @@
 #define CALIBRATE_ANGLE 4
 #define TURN_CLOCKWISE 5
 #define TURN_ANTICLOCKWISE 6
+#define STANDBY 11
 
 #define DEVICE_ID 6
 
@@ -270,9 +271,11 @@ void setup() {
   systemBootTime = millis();
   uint8_t self_mac[6];
   Serial.begin(115200);
-  // while (!Serial) 1;
+  //while (!Serial) 1;
   myStepper.setSpeed(60);
   pinMode(lightPin, INPUT);
+  pinMode(STANDBY, OUTPUT);
+  digitalWrite(STANDBY, LOW);
 
   WiFi.mode(WIFI_STA);
   WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
@@ -391,6 +394,7 @@ void turnToStep(int direction, int steps) {
     return;
   }
   int currentStep = 0;
+  digitalWrite(STANDBY, HIGH);
   while (currentStep < steps) {
     myStepper.step(direction);
     delay(5);
@@ -406,6 +410,7 @@ void turnToStep(int direction, int steps) {
       keepAlive();
     }
   }
+  digitalWrite(STANDBY, LOW);
   locked = true;
 }
 
@@ -416,12 +421,14 @@ void calibrateToStep(int steps) {
     return;
   }
   int currentStep = 0;
+  digitalWrite(STANDBY, HIGH);
   while (currentStep < steps) {
     myStepper.step(1);
     delay(1);
     currentStep++;
     keepAlive();
   }
+  digitalWrite(STANDBY, LOW);
   locked = true;
 }
 
@@ -434,6 +441,7 @@ void calibrate(int direction) {
   int currentStep = 0;
   int minLight = 4095;
   int stepsToMinLight = 0;
+  digitalWrite(STANDBY, HIGH);
   while (currentStep < stepsPerRevolution * 4) {
     keepAlive();
     myStepper.step(1);
@@ -454,26 +462,29 @@ void calibrate(int direction) {
   }
   int stepsToPosition = 0;
   if (direction == -1) {
-    stepsToPosition = stepsPerRevolution * 3;
-  } else if (direction == 1) {
     stepsToPosition = stepsPerRevolution;
+  } else if (direction == 1) {
+    stepsToPosition = stepsPerRevolution * 3;
   }
   while (stepsToPosition > 0) {
     myStepper.step(1);
     stepsToPosition--;
     keepAlive();
   }
+  digitalWrite(STANDBY, LOW);
   locked = true;
 }
 
 void tickClock() {
   if (locked) return;
   int remainingSteps = steps;
+  digitalWrite(STANDBY, HIGH);
   while (remainingSteps > 0) {
     myStepper.step(1);
     remainingSteps--;
     keepAlive();
   }
+  digitalWrite(STANDBY, LOW);
   ticking = false;
 }
 

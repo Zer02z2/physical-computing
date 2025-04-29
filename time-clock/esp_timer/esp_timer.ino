@@ -39,7 +39,7 @@ long systemBootTime;
 int turnDirection = 1;
 int currentTurnTarget = 0;
 int currentTurnTimes = 10;
-int totalTurnTimes = ESPNOW_PEER_COUNT * 2 - 4;
+int totalTurnTimes = 9;
 bool turnState = false;
 int nextClockDirection = 1;
 
@@ -413,7 +413,7 @@ void loop() {
           } else if (i == currentTarget) {
             DateTime now = rtc.now();
             int hour = now.hour();
-            if (hour >= 6 && hour <= 18) {
+            if (hour >= 6 && hour < 18) {
               new_msg.command = CALIBRATE_LEFT;
             } else {
               new_msg.command = CALIBRATE_RIGHT;
